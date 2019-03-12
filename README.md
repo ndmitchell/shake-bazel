@@ -1,0 +1,3 @@
+# shake-bazel
+
+Experimentation.
