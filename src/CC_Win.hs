@@ -1,52 +1,52 @@
 {-# LANGUAGE RecordWildCards, ViewPatterns #-}
 
-module CC_Win(builtins) where
+module CC_Win(builtinRules) where
 
 import Type
 import System.Directory
-import Control.Monad
+import Development.Shake
 import Data.List
 import System.FilePath
-import Development.Shake.Command
 
 
-builtins = let (*) = (,) in
+builtinRules :: [(String, BuiltinRule)]
+builtinRules = let (*) = (,) in
     ["cc_binary" * cc Binary
     ,"cc_library" * cc Library
     ]
 
 data Mode = Binary | Library
 
-cc :: Mode -> FilePath -> [(Maybe String, Value)] -> IO Value
-cc mode dir args = return $ VRule $ Rule (mkRuleName dir name) (map (mkRuleDep dir) deps) (srcs ++ hdrs) action
-    where
-        name = fromVString $ lookup_ (Just "name") args
-        srcs = fromVListString $ lookup_ (Just "srcs") args
-        hdrs = maybe [] fromVListString $ lookup (Just "hdrs") args
-        deps = maybe [] fromVListString $ lookup (Just "deps") args
+cc :: Mode -> Rule -> Action ()
+cc mode Rule{..} = do
+    let RuleName dir name = ruleName
+    let srcs = map (dir +/+) $ fromVListString $ lookup_ "srcs" ruleArgs
+    let hdrs = map (dir +/+) $ maybe [] fromVListString $ lookup "hdrs" ruleArgs
+    let deps = map (mkRuleDep dir) $ maybe [] fromVListString $ lookup "deps" ruleArgs
 
-        action = do
-            objs <- forM srcs $ \src -> do
-                let obj = "sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/_objs/" ++ name ++ "/" ++ dropExtension src ++ ".obj"
-                createDirectoryIfMissing True $ takeDirectory obj
-                putStrLn $ "Compiling: " ++ src
-                cmd_ (AddEnv "PATH" cc_path) (AddEnv "INCLUDE" cc_include)
-                    "cl /nologo /DCOMPILER_MSVC /DNOMINMAX /D_WIN32_WINNT=0x0601 /D_CRT_SECURE_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS /bigobj /Zm500 /EHsc"
-                    "/wd4351 /wd4291 /wd4250 /wd4996 /I."
-                    "/Isazel-out/x64_windows-fastbuild/genfiles /Isazel-out/x64_windows-fastbuild/bin /Iexternal/bazel_tools /Isazel-out/x64_windows-fastbuild/genfiles/external/bazel_tools /Isazel-out/x64_windows-fastbuild/bin/external/bazel_tools /MD /Od /Z7 /wd4117"
-                    "-D__DATE__=redacted -D__TIMESTAMP__=redacted -D__TIME__=redacted"
-                    ["/Fo" ++ obj,"/c",dir ++ "/" ++ src]
-                return obj
-            putStrLn $ "Linking: " ++ name
-            case mode of
-                Binary -> cmd_ (AddEnv "PATH" cc_path) (AddEnv "LIB" cc_lib)
-                    ("link.exe /nologo /OUT:sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/" ++ name ++ ".exe /SUBSYSTEM:CONSOLE /MACHINE:X64 /DEBUG:FASTLINK /INCREMENTAL:NO /DEFAULTLIB:msvcrt.lib")
-                    (map (toLib . mkRuleDep dir) deps)
-                    objs
-                Library -> cmd_ (AddEnv "PATH" cc_path) (AddEnv "LIB" cc_lib)
-                    "lib.exe /nologo /ignore:4221"
-                    ("/OUT:sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/" ++ name ++ ".lib")
-                    objs
+    need hdrs
+    objs <- forP srcs $ \src -> do
+        let obj = "sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/_objs/" ++ name ++ "/" ++ dropExtension src ++ ".obj"
+        liftIO $ createDirectoryIfMissing True $ takeDirectory obj
+        putNormal $ "Compiling: " ++ src
+        cmd_ (AddEnv "PATH" cc_path) (AddEnv "INCLUDE" cc_include)
+            "cl /nologo /DCOMPILER_MSVC /DNOMINMAX /D_WIN32_WINNT=0x0601 /D_CRT_SECURE_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS /bigobj /Zm500 /EHsc"
+            "/wd4351 /wd4291 /wd4250 /wd4996 /I."
+            "/Isazel-out/x64_windows-fastbuild/genfiles /Isazel-out/x64_windows-fastbuild/bin /Iexternal/bazel_tools /Isazel-out/x64_windows-fastbuild/genfiles/external/bazel_tools /Isazel-out/x64_windows-fastbuild/bin/external/bazel_tools /MD /Od /Z7 /wd4117"
+            "-D__DATE__=redacted -D__TIMESTAMP__=redacted -D__TIME__=redacted"
+            ["/Fo" ++ obj,"/c",src]
+        return obj
+    putNormal $ "Linking: " ++ name
+    needRule deps
+    case mode of
+        Binary -> cmd_ (AddEnv "PATH" cc_path) (AddEnv "LIB" cc_lib)
+            ("link.exe /nologo /OUT:sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/" ++ name ++ ".exe /SUBSYSTEM:CONSOLE /MACHINE:X64 /DEBUG:FASTLINK /INCREMENTAL:NO /DEFAULTLIB:msvcrt.lib")
+            (map toLib deps)
+            objs
+        Library -> cmd_ (AddEnv "PATH" cc_path) (AddEnv "LIB" cc_lib)
+            "lib.exe /nologo /ignore:4221"
+            ("/OUT:sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/" ++ name ++ ".lib")
+            objs
 
 toLib :: RuleName -> String
 toLib (RuleName dir name) = "sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/" ++ name ++ ".lib"

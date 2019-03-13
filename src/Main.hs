@@ -5,7 +5,6 @@ module Main(main) where
 import Type
 import qualified Builtins
 import qualified CC_Win
-import qualified Java
 
 import Language.Python.Common
 import Language.Python.Version3
@@ -14,26 +13,33 @@ import System.Directory.Extra
 import System.FilePath
 import Control.Monad.Extra
 import Data.List
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import Algebra.Graph.AdjacencyMap.Algorithm
-import Algebra.Graph.AdjacencyMap.Internal
 
 
 main = withCurrentDirectory "examples/cpp-tutorial/stage3" $ do
-    shakeArgs shakeOptions $ action $ liftIO $ do
-        let ignore x = "bazel-" `isPrefixOf` x || "sazel-" `isPrefixOf` x || "." `isPrefixOf` x
-        builds <- filter (\x -> takeFileName x == "BUILD") . map (drop 2) <$> listFilesInside (return . not . ignore . takeFileName . drop 2) "."
-        rules <- fmap concat $ forM builds $ \file -> do
-            src <- readFile file
+    shakeArgs shakeOptions $ do
+        addOracle $ \(Build dir) -> do
+            let file = dir </> "BUILD"
+            src <- readFile' file
             Right (tree, _) <- return $ parseModule src file
-            runModule (takeDirectory file) tree
-        let mp = Map.fromList [(ruleName x, x) | x <- rules]
-        Just order <- return $ topSort $ AM $ Map.map (Set.fromList . ruleDepends) mp
-        forM_ (reverse order) $ \x -> ruleAction (mp Map.! x)
+            liftIO $ runModule dir tree
+
+        addOracle $ \o@(RuleName dir x) -> do
+            rules <- askOracle $ Build dir
+            case filter (\x -> ruleName x == o) rules of
+                [] -> error $ "Rule not found, " ++ show o
+                _:_:_ -> error "Multiple rules found"
+                [r@Rule{..}] -> lookup_ ruleType builtinRules r
+
+        action $ do
+            let ignore x = "bazel-" `isPrefixOf` x || "sazel-" `isPrefixOf` x || "." `isPrefixOf` x
+            builds <- liftIO $ filter (\x -> takeFileName x == "BUILD") . map (drop 2) <$> listFilesInside (return . not . ignore . takeFileName . drop 2) "."
+            forP builds $ \x -> do
+                rules <- askOracle $ Build $ takeDirectory x
+                forP rules $ askOracle . ruleName
 
 
-builtins = CC_Win.builtins ++ Java.builtins ++ Builtins.builtins
+builtinFuncs = Builtins.builtinFuncs
+builtinRules = CC_Win.builtinRules
 
 
 runModule :: FilePath -> Module SrcSpan -> IO [Rule]
@@ -45,8 +51,23 @@ runStmt dir (StmtExpr x _) = do
     return [x]
 
 runExpr :: FilePath -> Expr SrcSpan -> IO Value
-runExpr dir Call{..} = do
-    VFun f <- runExpr dir call_fun
+runExpr dir Call{..}
+    | Var{..} <- call_fun
+    , Just x <- lookup (ident_string var_ident) builtinRules
+    = do
+        args <- runArgs dir call_args
+        return $ VRule $ Rule
+            (ident_string var_ident)
+            (dir //: fromVString (lookup_ (Just "name") args))
+            [(x, y) | (Just x, y) <- args]
+runExpr dir Call{..}
+    | Var{..} <- call_fun
+    , Just x <- lookup (ident_string var_ident) builtinFuncs
+    = error "here"
+
+{-
+ = do
+    runExpr dir call_fun
     xs <- forM call_args $ \x -> do
         let name = case x of
                 ArgKeyword{..} -> Just $ ident_string arg_keyword
@@ -54,8 +75,18 @@ runExpr dir Call{..} = do
         (name,) <$> runExpr dir (arg_expr x)
     f xs
 runExpr dir Var{..} | Just x <- lookup (ident_string var_ident) builtins = return $ VFun $ x dir
+-}
+
 runExpr dir Strings{..} = return $ VString $ concatMap read strings_strings
 runExpr dir List{..} = do
     xs <- mapM (runExpr dir) list_exprs
     return $ VList xs
 runExpr dir x = error $ show x
+
+
+runArgs :: FilePath -> [Argument SrcSpan] -> IO [(Maybe String, Value)]
+runArgs dir args = forM args $ \x -> do
+    let name = case x of
+            ArgKeyword{..} -> Just $ ident_string arg_keyword
+            _ -> Nothing
+    (name,) <$> runExpr dir (arg_expr x)

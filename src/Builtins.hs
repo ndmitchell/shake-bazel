@@ -1,11 +1,12 @@
 
-module Builtins(builtins) where
+module Builtins(builtinFuncs) where
 
 import Type
 import System.FilePattern.Directory
 
 
-builtins = let (*) = (,) in
+builtinFuncs :: [(String, BuiltinFunc)]
+builtinFuncs = let (*) = (,) in
     ["glob" * glob
     ]
 
