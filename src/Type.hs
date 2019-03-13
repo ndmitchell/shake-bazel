@@ -23,7 +23,7 @@ data Rule = Rule
     {ruleName :: RuleName
     ,ruleDepends :: [RuleName]
     ,fileDepends :: [FilePath]
-    ,ruleAction :: (RuleName -> Rule) -> IO ()
+    ,ruleAction :: IO ()
     } deriving Show
 
 mkRuleName :: FilePath -> String -> RuleName

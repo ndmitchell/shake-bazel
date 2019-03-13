@@ -25,7 +25,7 @@ cc mode dir args = return $ VRule $ Rule (mkRuleName dir name) (map (mkRuleDep d
         hdrs = maybe [] fromVListString $ lookup (Just "hdrs") args
         deps = maybe [] fromVListString $ lookup (Just "deps") args
 
-        action _ = do
+        action = do
             objs <- forM srcs $ \src -> do
                 let obj = "sazel-out/x64_windows-fastbuild/bin/" ++ dir ++ "/_objs/" ++ name ++ "/" ++ dropExtension src ++ ".obj"
                 createDirectoryIfMissing True $ takeDirectory obj

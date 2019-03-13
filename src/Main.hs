@@ -28,7 +28,7 @@ main = withCurrentDirectory "examples/cpp-tutorial/stage3" $ do
         runModule (takeDirectory file) tree
     let mp = Map.fromList [(ruleName x, x) | x <- rules]
     Just order <- return $ topSort $ AM $ Map.map (Set.fromList . ruleDepends) mp
-    forM_ (reverse order) $ \x -> ruleAction (mp Map.! x) (mp Map.!)
+    forM_ (reverse order) $ \x -> ruleAction (mp Map.! x)
 
 
 builtins = CC_Win.builtins ++ Java.builtins ++ Builtins.builtins
