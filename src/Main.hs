@@ -9,6 +9,7 @@ import qualified Java
 
 import Language.Python.Common
 import Language.Python.Version3
+import Development.Shake
 import System.Directory.Extra
 import System.FilePath
 import Control.Monad.Extra
@@ -20,15 +21,16 @@ import Algebra.Graph.AdjacencyMap.Internal
 
 
 main = withCurrentDirectory "examples/cpp-tutorial/stage3" $ do
-    let ignore x = "bazel-" `isPrefixOf` x || "sazel-" `isPrefixOf` x || "." `isPrefixOf` x
-    builds <- filter (\x -> takeFileName x == "BUILD") . map (drop 2) <$> listFilesInside (return . not . ignore . takeFileName . drop 2) "."
-    rules <- fmap concat $ forM builds $ \file -> do
-        src <- readFile file
-        Right (tree, _) <- return $ parseModule src file
-        runModule (takeDirectory file) tree
-    let mp = Map.fromList [(ruleName x, x) | x <- rules]
-    Just order <- return $ topSort $ AM $ Map.map (Set.fromList . ruleDepends) mp
-    forM_ (reverse order) $ \x -> ruleAction (mp Map.! x)
+    shakeArgs shakeOptions $ action $ liftIO $ do
+        let ignore x = "bazel-" `isPrefixOf` x || "sazel-" `isPrefixOf` x || "." `isPrefixOf` x
+        builds <- filter (\x -> takeFileName x == "BUILD") . map (drop 2) <$> listFilesInside (return . not . ignore . takeFileName . drop 2) "."
+        rules <- fmap concat $ forM builds $ \file -> do
+            src <- readFile file
+            Right (tree, _) <- return $ parseModule src file
+            runModule (takeDirectory file) tree
+        let mp = Map.fromList [(ruleName x, x) | x <- rules]
+        Just order <- return $ topSort $ AM $ Map.map (Set.fromList . ruleDepends) mp
+        forM_ (reverse order) $ \x -> ruleAction (mp Map.! x)
 
 
 builtins = CC_Win.builtins ++ Java.builtins ++ Builtins.builtins
